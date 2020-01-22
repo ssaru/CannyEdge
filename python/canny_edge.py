@@ -1,3 +1,4 @@
+import sys
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -468,8 +469,264 @@ def sobel_y(source: np.ndarray,
     return filter(source=source, mask=sobelmask_gy, stride=stride, pad_size=pad_size, pad_value=pad_value)
 
 
-def gradient_vector_field(gradient: Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
-    pass
+def gradient_vector_field(gx: np.ndarray, gy: np.ndarray) -> np.ndarray:
+    """
+    Gradient Vector Field
+    Refer here: https://en.wikipedia.org/wiki/Vector_field
+                https://angeloyeo.github.io/2019/08/25/gradient.html
+
+    Args:
+        gx (np.ndarray): x direction gradient as 2-D array
+        gy (np.ndarray): y direction gradient as 2-D array
+
+    Returns:
+         (np.ndarray): gradient vector field as 3-D array
+
+    >>> import numpy as np
+    >>> np.set_printoptions(precision=2)
+
+    >>> gx = np.array([[1, 2, 3], \
+                       [4, 5, 6], \
+                       [7, 8, 9]])
+    >>> gy = np.array([[1, 2, 3], \
+                       [4, 5, 6], \
+                       [7, 8, 9]])
+    >>> gradient_vector_field(gx, gy)
+    array([[[1., 1.],
+            [2., 2.],
+            [3., 3.]],
+    <BLANKLINE>
+           [[4., 4.],
+            [5., 5.],
+            [6., 6.]],
+    <BLANKLINE>
+           [[7., 7.],
+            [8., 8.],
+            [9., 9.]]])
+    """
+    assert gx.shape == gy.shape, f"shape of two argument should be same : gx->{gx.shape}, gy->{gy.shape}"
+
+    output_shape = list(gx.shape)
+    output_shape.append(2)
+    output_shape = tuple(output_shape)
+    output_width, output_height, output_channels = output_shape
+
+    output = np.zeros(output_shape)
+
+    for x_idx in range(output_width):
+        for y_idx in range(output_height):
+            output[x_idx][y_idx][0] = gx[x_idx][y_idx]
+            output[x_idx][y_idx][1] = gy[x_idx][y_idx]
+
+    return output
+
+
+def norm_vector_field(vector_field: np.ndarray):
+    """
+    norm of vector field
+
+    Args:
+        vector_field (np.ndarray): 3-D array vector field as following [w, h, c]
+
+    Returns:
+        (np.ndarray): 2-D array norm as following [w, h]
+
+    >>> import numpy as np
+    >>> np.set_printoptions(precision=2)
+
+    >>> vector_field = np.array([[[1., 1.], [2., 2.], [3., 3.]], \
+                                 [[4., 4.], [5., 5.], [6., 6.]], \
+                                 [[7., 7.], [8., 8.], [9., 9.]]])
+
+    >>> norm_vector_field(vector_field=vector_field)
+    array([[ 1.41,  2.83,  4.24],
+           [ 5.66,  7.07,  8.49],
+           [ 9.9 , 11.31, 12.73]])
+    """
+
+    output_width, output_height, _ = vector_field.shape
+    output = np.zeros((output_width, output_height))
+
+    for x_idx in range(output_width):
+        for y_idx in range(output_height):
+            if (vector_field[x_idx][y_idx][0] == 0) and (vector_field[x_idx][y_idx][1] == 0):
+                output[x_idx][y_idx] = 0
+            else:
+                output[x_idx][y_idx] = np.sqrt((vector_field[x_idx][y_idx][0] ** 2) + (vector_field[x_idx][y_idx][1] ** 2))
+
+    return output
+
+
+def direction_vector_field(vector_field: np.ndarray):
+    """
+    direction of vector field
+
+    Args:
+        vector_field (np.ndarray): 3-D array vector field as following [w, h, c]
+
+    Returns:
+        (np.ndarray): 2-D array norm as following [w, h]
+
+    >>> import numpy as np
+    >>> np.set_printoptions(precision=2)
+
+    >>> vector_field = np.array([[[1., 1.], [2., 2.], [3., 3.]], \
+                                 [[4., 4.], [5., 5.], [6., 6.]], \
+                                 [[7., 7.], [8., 8.], [9., 9.]]])
+
+    >>> direction_vector_field(vector_field=vector_field)
+    array([[45., 45., 45.],
+           [45., 45., 45.],
+           [45., 45., 45.]])
+    """
+
+    output_width, output_height, _ = vector_field.shape
+    output = np.zeros((output_width, output_height))
+
+    for x_idx in range(output_width):
+        for y_idx in range(output_height):
+            if vector_field[x_idx][y_idx][0] == 0:
+                vector_field[x_idx][y_idx][0] += sys.float_info.epsilon
+
+            if vector_field[x_idx][y_idx][1] == 0:
+                vector_field[x_idx][y_idx][1] += sys.float_info.epsilon
+
+            output[x_idx][y_idx] = np.arctan(vector_field[x_idx][y_idx][0] / vector_field[x_idx][y_idx][1])
+
+    output = (output * 180) / np.pi
+    output = np.round(output, 2)
+    output[output < 0] += 180
+
+    return output
+
+
+def direction_binning(direction_map: np.ndarray):
+    """
+    Direction Binning.
+    Direction map binning to 4 direction [0, 45, 90, 135]
+
+    Args:
+        direction_map (np.ndarray): angle 2-D array map of vector field
+
+    >>> direction_map = np.array([[45.,   2.,  70.,  90.,  153.,  170.], \
+                                  [30.,  45.,  15.,  14.,   17.,  120.], \
+                                  [60., 110.,  10.,  37.,   45.,   78.], \
+                                  [75.,  25.,  75.,  89.,   35.,  158.], \
+                                  [96.,  60.,  63., 145.,  160.,   48.]])
+
+    >>> direction_binning(direction_map)
+    array([[ 45.,   0.,  90.,  90., 135.,   0.],
+           [ 45.,  45.,   0.,   0.,   0., 135.],
+           [ 45.,  90.,   0.,  45.,  45.,  90.],
+           [ 90.,  45.,  90.,  90.,  45.,   0.],
+           [ 90.,  45.,  45., 135.,   0.,  45.]])
+    """
+    bin_range = {"0": [[157.5, 180], [0, 22.5]],
+
+                 "45": [[22.5, 67.5]],
+
+                 "90": [[67.5,112.5]],
+
+                 "135": [[112.5, 157.5]]}
+
+    output = copy.deepcopy(direction_map)
+
+    keys = sorted(list(bin_range.keys()))
+    for key in keys:
+        for angle_range in bin_range[key]:
+            min_value = angle_range[0]
+            max_value = angle_range[1]
+            condition = ((min_value <= output) & (output < max_value))
+            output = np.where(condition, float(int(key)), output)
+
+    return output
+
+
+def non_maximum_suppression(magnitude_map: np.ndarray,
+                            direction_map: np.ndarray,
+                            mask_size: Tuple[int, int] = (3, 3)):
+    """
+    NMS(Non Maximum Suppression) Algorithms
+    Refer here: https://en.wikipedia.org/wiki/Canny_edge_detector#Non-maximum_suppression
+
+    Args:
+        magnitude_map (np.ndarray): magnitude 2-D array map of vector field
+        direction_map (np.ndarray): angle 2-D array map of vector field
+        mask_size     (Tuple[int, int]): mask size
+
+    Returns:
+        (np.ndarray): first processed edge map
+
+    # TODO.
+    # NMS Algorithms show some scatter image.
+    # But result of NMS is some difference in refer site
+    # (https://towardsdatascience.com/canny-edge-detection-step-by-step-in-python-computer-vision-b49c3a2d8123)
+    # it should be add reflection past edge logic that reflect past edge direction.
+    # if past point was edge. next direction point will be edge(possibility high more than others)
+
+    >>> import numpy as np
+    >>> np.set_printoptions(precision=2)
+
+    >>> magnitude_map = np.array([[4.,  2.,  1.,  1.,   4.,  5.], \
+                                  [5.,  7.,  3.,  6.,   2.,  9.], \
+                                  [1.,  2.,  1., 10.,   4.,  5.], \
+                                  [9.,  10., 4.,  3.,   2., 15.], \
+                                  [19., 17., 1., 10.,   4., 20.]])
+
+    >>> direction_map = np.array([[45.,  0., 90., 90.,135.,   0.], \
+                                  [45., 45.,  0.,  0.,  0., 135.], \
+                                  [45., 90.,  0., 45., 45.,  90.], \
+                                  [90., 45., 90., 90., 45.,   0.], \
+                                  [90., 45., 45.,135.,  0.,  45.]])
+    >>> mask_size = (3, 3)
+
+    >>> non_maximum_suppression(magnitude_map=magnitude_map, direction_map=direction_map, mask_size=mask_size)
+    array([[ 4.,  0.,  0.,  0.,  0.,  5.],
+           [ 5.,  7.,  0.,  6.,  0.,  9.],
+           [ 0.,  0.,  0., 10.,  0.,  0.],
+           [ 0.,  0.,  4.,  0.,  0., 15.],
+           [19., 17.,  0., 10.,  0., 20.]])
+    """
+    mask_width, mask_height = mask_size
+
+    assert (mask_width != 0) and (mask_height != 0), f"Mask size should be greater than 0 : {mask_size}"
+    assert (mask_width % 2 == 1) and (mask_height % 2 == 1), f"Mask element should be odd : {mask_size}"
+
+    pad_size = ((mask_width - 1) // 2, (mask_height - 1) // 2)
+    pad_value = 0
+
+    paded_magnitude_map = pad2d(source=magnitude_map, pad_size=pad_size, pad_value=pad_value)
+
+    output = np.zeros(magnitude_map.shape)
+    output_height, output_width = output.shape
+
+    for y_idx in range(output_height):
+        for x_idx in range(output_width):
+            center_x = x_idx + pad_size[0]
+            center_y = y_idx + pad_size[1]
+
+            direction = direction_map[y_idx][x_idx]
+
+            if direction == 0.:
+                p_neighbor = paded_magnitude_map[center_y][center_x + 1]
+                q_neighbor = paded_magnitude_map[center_y][center_x - 1]
+            elif direction == 45.:
+                p_neighbor = paded_magnitude_map[center_y - 1][center_x + 1]
+                q_neighbor = paded_magnitude_map[center_y + 1][center_x - 1]
+            elif direction == 90.:
+                p_neighbor = paded_magnitude_map[center_y + 1][center_x]
+                q_neighbor = paded_magnitude_map[center_y - 1][center_x]
+            elif direction == 135.:
+                p_neighbor = paded_magnitude_map[center_y - 1][center_x - 1]
+                q_neighbor = paded_magnitude_map[center_y + 1][center_x + 1]
+            else:
+                raise RuntimeError(f"not support direction value : {direction}")
+
+            center_point = paded_magnitude_map[center_y][center_x]
+
+            output[y_idx][x_idx] = center_point if ((p_neighbor <= center_point) and (q_neighbor <= center_point)) else 0.
+
+    return output
 
 
 if __name__ == "__main__":
@@ -501,20 +758,27 @@ if __name__ == "__main__":
                        pad_size=(0, 0),
                        pad_value=0)
 
-    gradient = (sobel_gx, sobel_gy)
+    vector_field = gradient_vector_field(sobel_gx, sobel_gy)
+    magnitude_map = norm_vector_field(vector_field)
+    angle_map = direction_vector_field(vector_field)
+    bined_angle_map = direction_binning(angle_map)
+    print(vector_field)
+    print("====================================")
+    print(magnitude_map)
+    print("====================================")
+    print(angle_map)
+    print("====================================")
+    print(bined_angle_map)
+    minima_image = non_maximum_suppression(magnitude_map, bined_angle_map, (3, 3))
 
-    print(sobel_gx)
-    print(sobel_gy)
-
-    print(image.shape)
-    print(gaussian_image.shape)
-    plt.figure()
-    plt.imshow(sobel_gx, cmap='gray')
+    plt.figure("NMS")
+    plt.imshow(minima_image, cmap='gray')
     plt.show()
 
-    plt.figure()
-    plt.imshow(sobel_gy, cmap='gray')
+    plt.figure("Magnitude")
+    plt.imshow(magnitude_map, cmap='gray')
     plt.show()
+
 
 
 
