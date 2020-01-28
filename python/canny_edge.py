@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import matplotlib.pyplot as plt
 
-from typing import List, Tuple, Any
+from typing import List, Tuple, Union
 
 from PIL import Image
 
@@ -644,6 +644,8 @@ def direction_binning(direction_map: np.ndarray):
 
 def non_maximum_suppression(magnitude_map: np.ndarray,
                             direction_map: np.ndarray,
+                            high_threshold: int = 200,
+                            low_threshold: int = 100,
                             mask_size: Tuple[int, int] = (3, 3)):
     """
     NMS(Non Maximum Suppression) Algorithms
@@ -652,17 +654,12 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
     Args:
         magnitude_map (np.ndarray): magnitude 2-D array map of vector field
         direction_map (np.ndarray): angle 2-D array map of vector field
+        high_treshold (int):
+        low_treshold  (int):
         mask_size     (Tuple[int, int]): mask size
 
     Returns:
         (np.ndarray): first processed edge map
-
-    # TODO.
-    # NMS Algorithms show some scatter image.
-    # But result of NMS is some difference in refer site
-    # (https://towardsdatascience.com/canny-edge-detection-step-by-step-in-python-computer-vision-b49c3a2d8123)
-    # it should be add reflection past edge logic that reflect past edge direction.
-    # if past point was edge. next direction point will be edge(possibility high more than others)
 
     >>> import numpy as np
     >>> np.set_printoptions(precision=2)
@@ -678,14 +675,19 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
                                   [45., 90.,  0., 45., 45.,  90.], \
                                   [90., 45., 90., 90., 45.,   0.], \
                                   [90., 45., 45.,135.,  0.,  45.]])
+    >>> high_threshold, low_threshold = 5, 3
     >>> mask_size = (3, 3)
 
-    >>> non_maximum_suppression(magnitude_map=magnitude_map, direction_map=direction_map, mask_size=mask_size)
-    array([[ 4.,  0.,  0.,  0.,  0.,  5.],
-           [ 5.,  7.,  0.,  6.,  0.,  9.],
-           [ 0.,  0.,  0., 10.,  0.,  0.],
-           [ 0.,  0.,  4.,  0.,  0., 15.],
-           [19., 17.,  0., 10.,  0., 20.]])
+    >>> non_maximum_suppression(magnitude_map=magnitude_map, \
+                                direction_map=direction_map, \
+                                mask_size=mask_size, \
+                                high_threshold=high_threshold, \
+                                low_threshold=low_threshold)
+    array([[0., 0., 0., 0., 1., 1.],
+           [1., 1., 1., 1., 0., 1.],
+           [0., 0., 0., 1., 0., 1.],
+           [1., 1., 1., 0., 0., 1.],
+           [1., 1., 0., 1., 0., 1.]])
     """
     mask_width, mask_height = mask_size
 
@@ -697,43 +699,178 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
 
     paded_magnitude_map = pad2d(source=magnitude_map, pad_size=pad_size, pad_value=pad_value)
 
+    edge_map = np.zeros(paded_magnitude_map.shape)
     output = np.zeros(magnitude_map.shape)
     output_height, output_width = output.shape
 
     for y_idx in range(output_height):
+        if y_idx == 5:
+            break
         for x_idx in range(output_width):
+            if x_idx == 6:
+                break
+
             center_x = x_idx + pad_size[0]
             center_y = y_idx + pad_size[1]
 
             direction = direction_map[y_idx][x_idx]
 
-            if direction == 0.:
-                p_neighbor = paded_magnitude_map[center_y][center_x + 1]
-                q_neighbor = paded_magnitude_map[center_y][center_x - 1]
-            elif direction == 45.:
-                p_neighbor = paded_magnitude_map[center_y - 1][center_x + 1]
-                q_neighbor = paded_magnitude_map[center_y + 1][center_x - 1]
-            elif direction == 90.:
-                p_neighbor = paded_magnitude_map[center_y + 1][center_x]
-                q_neighbor = paded_magnitude_map[center_y - 1][center_x]
-            elif direction == 135.:
-                p_neighbor = paded_magnitude_map[center_y - 1][center_x - 1]
-                q_neighbor = paded_magnitude_map[center_y + 1][center_x + 1]
-            else:
-                raise RuntimeError(f"not support direction value : {direction}")
+            previous_pixel, next_pixel = get_neighbor_pixels(source=paded_magnitude_map,
+                                                             point=(center_x, center_y),
+                                                             direction=direction)
+            center_pixel = paded_magnitude_map[center_y][center_x]
 
-            center_point = paded_magnitude_map[center_y][center_x]
 
-            output[y_idx][x_idx] = center_point if ((p_neighbor <= center_point) and (q_neighbor <= center_point)) else 0.
+            #if y_idx == 2:
+            if x_idx == 6:
+                raise RuntimeError(f"{direction} {[[previous_pixel, center_pixel, next_pixel]]} {output_width}")
+
+
+            previous_pixel, center_pixel, next_pixel = hysteresis_threshold(source=[previous_pixel, center_pixel, next_pixel],
+                                                                            high_threshold=high_threshold,
+                                                                            low_threshold=low_threshold)
+
+            edge_map = set_neighbor_pixels(edge_map,
+                                           point=(center_y, center_x),
+                                           direction=direction,
+                                           neighbour_pixels=[previous_pixel, center_pixel, next_pixel])
+
+    output = edge_map[pad_size[1]:(-pad_size[1]), pad_size[0]:(-pad_size[0])]
 
     return output
+
+
+def get_neighbor_pixels(source: np.ndarray,
+                        point: Tuple[int, int],
+                        direction: Union[int, float]) -> List[Union[int, float]]:
+    """
+
+    Args:
+        source (np.ndarray):
+        point (Tuple[int, int]):
+        direction (Union[int, float]):
+
+    Returns:
+        (List[Union[int, float], Union[int, float]])
+    """
+
+    center_x, center_y = point
+
+    # reference is vector direction as following
+    # vector representation (start, end) = (previous pixel, next pixel)
+    # 0:    (1, 0)
+    # 45:   (1, 1)
+    # 90:   (0, 1)
+    # 135:  (-1, 1)
+    # Arrow tip is next pixel
+    # Arrow root is previous pixel
+    if direction == 0.:
+        next_pixel = source[center_y][center_x + 1]
+        previous_pixel = source[center_y][center_x - 1]
+    elif direction == 45.:
+        next_pixel = source[center_y - 1][center_x + 1]
+        previous_pixel = source[center_y + 1][center_x - 1]
+    elif direction == 90.:
+        next_pixel = source[center_y - 1][center_x]
+        previous_pixel = source[center_y + 1][center_x]
+    elif direction == 135.:
+        next_pixel = source[center_y - 1][center_x - 1]
+        previous_pixel = source[center_y + 1][center_x + 1]
+    else:
+        raise RuntimeError(f"not support direction value : {direction}")
+
+    return [previous_pixel, next_pixel]
+
+
+def set_neighbor_pixels(source: np.ndarray,
+                        point: Tuple[int, int],
+                        direction: Union[int, float],
+                        neighbour_pixels: List[Union[int, float]]) -> np.ndarray:
+    """
+
+    Args:
+        source              (np.ndarray):
+        point               (Tuple[int, int]):
+        direction           (Union[int, float]):
+        neighbour_pixels    (List[Union[int, float], Union[int, float], Union[int, float]]):
+
+    Returns:
+        (np.ndarray)
+
+    """
+    previous_pixel, center_pixel, next_pixel = neighbour_pixels
+    center_x, center_y = point
+    output = copy.deepcopy(source)
+    if direction == 0.:
+        output[center_y][center_x - 1] = insert(output[center_y][center_x - 1], next_pixel)
+        output[center_y][center_x + 1] = insert(output[center_y][center_x + 1], previous_pixel)
+    elif direction == 45.:
+        output[center_y - 1][center_x + 1] = insert(output[center_y - 1][center_x + 1], next_pixel)
+        output[center_y + 1][center_x - 1] = insert(output[center_y + 1][center_x - 1], previous_pixel)
+    elif direction == 90.:
+        output[center_y - 1][center_x] = insert(output[center_y - 1][center_x], next_pixel)
+        output[center_y + 1][center_x] = insert(output[center_y + 1][center_x], previous_pixel)
+    elif direction == 135.:
+        output[center_y - 1][center_x - 1] = insert(output[center_y - 1][center_x - 1], next_pixel)
+        output[center_y + 1][center_x + 1] = insert(output[center_y + 1][center_x + 1], previous_pixel)
+
+    else:
+        raise RuntimeError(f"not support direction value : {direction}")
+
+    output[center_y][center_x] = center_pixel
+
+    return output
+
+
+# TODO. Should refactoring
+def insert(source, value):
+    return value if source == 0 else source
+
+
+def hysteresis_threshold(source: List[Union[int, float]],
+                         high_threshold: int,
+                         low_threshold: int) -> List[Union[int, float]]:
+    """
+
+    Args:
+        source (List[Union[int, float]]): centre point pixel with neighbour pixel
+        high_threshold (int): high threshold value for hysteresis threshold
+        low_threshold (int): low threshold value for hysteresis threshold
+
+    Returns:
+        (np.ndarray): result of hysteresis threshold as 2-D array map
+
+
+    >>> source = [6, 10, 3]
+    >>> high_threshold, low_threshold = 8, 5
+
+    >>> hysteresis_threshold(source=source, high_threshold=high_threshold, low_threshold=low_threshold)
+    [1, 1, 0]
+    """
+
+    previous_pixel, center_pixel, next_pixel = source
+
+    out_previous_pixel = 0
+    out_center_pixel = 0
+    out_next_pixel = 0
+
+    if center_pixel >= high_threshold:
+        out_center_pixel = 1
+
+        if previous_pixel >= low_threshold:
+            out_previous_pixel = 1
+
+        if next_pixel >= low_threshold:
+            out_next_pixel = 1
+
+    return [out_previous_pixel, out_center_pixel, out_next_pixel]
 
 
 if __name__ == "__main__":
     import os
     import doctest
     doctest.testmod()
-
+    """
     image_dir = ""
     image_name = "Lenna.png"
     image = Image.open(os.path.join(image_dir, image_name)).convert('L')
@@ -778,7 +915,7 @@ if __name__ == "__main__":
     plt.figure("Magnitude")
     plt.imshow(magnitude_map, cmap='gray')
     plt.show()
-
+    """
 
 
 
