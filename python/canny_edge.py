@@ -664,17 +664,13 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
     >>> import numpy as np
     >>> np.set_printoptions(precision=2)
 
-    >>> magnitude_map = np.array([[4.,  2.,  1.,  1.,   4.,  5.], \
-                                  [5.,  7.,  3.,  6.,   2.,  9.], \
-                                  [1.,  2.,  1., 10.,   4.,  5.], \
-                                  [9.,  10., 4.,  3.,   2., 15.], \
-                                  [19., 17., 1., 10.,   4., 20.]])
+    >>> magnitude_map = np.array([[4.,  2.,  1.], \
+                                  [5.,  7.,  3.], \
+                                  [1.,  2.,  1.]])
 
-    >>> direction_map = np.array([[45.,  0., 90., 90.,135.,   0.], \
-                                  [45., 45.,  0.,  0.,  0., 135.], \
-                                  [45., 90.,  0., 45., 45.,  90.], \
-                                  [90., 45., 90., 90., 45.,   0.], \
-                                  [90., 45., 45.,135.,  0.,  45.]])
+    >>> direction_map = np.array([[45.,  0., 90.], \
+                                  [45., 45.,  0.], \
+                                  [45., 90.,  0.]])
     >>> high_threshold, low_threshold = 5, 3
     >>> mask_size = (3, 3)
 
@@ -683,11 +679,9 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
                                 mask_size=mask_size, \
                                 high_threshold=high_threshold, \
                                 low_threshold=low_threshold)
-    array([[0., 0., 0., 0., 1., 1.],
-           [1., 1., 1., 1., 0., 1.],
-           [0., 0., 0., 1., 0., 1.],
-           [1., 1., 1., 0., 0., 1.],
-           [1., 1., 0., 1., 0., 1.]])
+    array([[0., 0., 0.],
+           [1., 1., 0.],
+           [0., 0., 0.]])
     """
     mask_width, mask_height = mask_size
 
@@ -703,12 +697,11 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
     output = np.zeros(magnitude_map.shape)
     output_height, output_width = output.shape
 
+    #raise RuntimeError(f"output shape : {output.shape}, pad size : {pad_size}, edge map shape : {edge_map.shape}")
+    # output shape : (5, 6), pad size : (1, 1), edge map shape : (7, 8)
+    # shape (5, 6), pad_size (1, 1)
     for y_idx in range(output_height):
-        if y_idx == 5:
-            break
         for x_idx in range(output_width):
-            if x_idx == 6:
-                break
 
             center_x = x_idx + pad_size[0]
             center_y = y_idx + pad_size[1]
@@ -720,20 +713,21 @@ def non_maximum_suppression(magnitude_map: np.ndarray,
                                                              direction=direction)
             center_pixel = paded_magnitude_map[center_y][center_x]
 
+            new_previous_pixel, new_center_pixel, new_next_pixel = hysteresis_threshold(source=[previous_pixel, center_pixel, next_pixel],
+                                                                                        high_threshold=high_threshold,
+                                                                                        low_threshold=low_threshold)
 
-            #if y_idx == 2:
-            if x_idx == 6:
-                raise RuntimeError(f"{direction} {[[previous_pixel, center_pixel, next_pixel]]} {output_width}")
-
-
-            previous_pixel, center_pixel, next_pixel = hysteresis_threshold(source=[previous_pixel, center_pixel, next_pixel],
-                                                                            high_threshold=high_threshold,
-                                                                            low_threshold=low_threshold)
-
-            edge_map = set_neighbor_pixels(edge_map,
-                                           point=(center_y, center_x),
+            edge_map = set_neighbor_pixels(source=edge_map,
+                                           point=(center_x, center_y),
                                            direction=direction,
-                                           neighbour_pixels=[previous_pixel, center_pixel, next_pixel])
+                                           neighbour_pixels=[new_previous_pixel, new_center_pixel, new_next_pixel])
+
+            """
+            if (y_idx == 2) and (x_idx == 2):
+                raise RuntimeError(f"source : {[previous_pixel, center_pixel, next_pixel]}, angle : {direction}, threshold : {high_threshold, low_threshold}\n"
+                                   f"target : {[new_previous_pixel, new_center_pixel, new_next_pixel]}\n"
+                                   f"edge_map \n: {edge_map}")
+            """
 
     output = edge_map[pad_size[1]:(-pad_size[1]), pad_size[0]:(-pad_size[0])]
 
@@ -790,6 +784,7 @@ def set_neighbor_pixels(source: np.ndarray,
 
     Args:
         source              (np.ndarray):
+        target              (np.ndarary):
         point               (Tuple[int, int]):
         direction           (Union[int, float]):
         neighbour_pixels    (List[Union[int, float], Union[int, float], Union[int, float]]):
@@ -800,19 +795,32 @@ def set_neighbor_pixels(source: np.ndarray,
     """
     previous_pixel, center_pixel, next_pixel = neighbour_pixels
     center_x, center_y = point
+    #center_x += pad_size[0]
+    #center_y += pad_size[1]
     output = copy.deepcopy(source)
+    #raise RuntimeError(f"output shape : {output.shape}")
+    # (7, 8)
     if direction == 0.:
-        output[center_y][center_x - 1] = insert(output[center_y][center_x - 1], next_pixel)
-        output[center_y][center_x + 1] = insert(output[center_y][center_x + 1], previous_pixel)
+        if output[center_y][center_x - 1] == 0:
+            output[center_y][center_x - 1] = insert(output[center_y][center_x - 1], previous_pixel)
+
+        if output[center_y][center_x + 1] == 0:
+            output[center_y][center_x + 1] = insert(output[center_y][center_x + 1], next_pixel)
     elif direction == 45.:
-        output[center_y - 1][center_x + 1] = insert(output[center_y - 1][center_x + 1], next_pixel)
-        output[center_y + 1][center_x - 1] = insert(output[center_y + 1][center_x - 1], previous_pixel)
+        if output[center_y - 1][center_x + 1] == 0:
+            output[center_y - 1][center_x + 1] = insert(output[center_y - 1][center_x + 1], next_pixel)
+        if output[center_y + 1][center_x - 1] == 0:
+            output[center_y + 1][center_x - 1] = insert(output[center_y + 1][center_x - 1], previous_pixel)
     elif direction == 90.:
-        output[center_y - 1][center_x] = insert(output[center_y - 1][center_x], next_pixel)
-        output[center_y + 1][center_x] = insert(output[center_y + 1][center_x], previous_pixel)
+        if output[center_y - 1][center_x] == 0:
+            output[center_y - 1][center_x] = insert(output[center_y - 1][center_x], next_pixel)
+        if output[center_y + 1][center_x] == 0:
+            output[center_y + 1][center_x] = insert(output[center_y + 1][center_x], previous_pixel)
     elif direction == 135.:
-        output[center_y - 1][center_x - 1] = insert(output[center_y - 1][center_x - 1], next_pixel)
-        output[center_y + 1][center_x + 1] = insert(output[center_y + 1][center_x + 1], previous_pixel)
+        if output[center_y - 1][center_x - 1] == 0:
+            output[center_y - 1][center_x - 1] = insert(output[center_y - 1][center_x - 1], previous_pixel)
+        if output[center_y + 1][center_x + 1] == 0:
+            output[center_y + 1][center_x + 1] = insert(output[center_y + 1][center_x + 1], next_pixel)
 
     else:
         raise RuntimeError(f"not support direction value : {direction}")
@@ -849,6 +857,10 @@ def hysteresis_threshold(source: List[Union[int, float]],
     """
 
     previous_pixel, center_pixel, next_pixel = source
+    """
+    print(f"source : {source}")
+    print(f"prev_pixel : {previous_pixel}, center pixel : {center_pixel}, next pixel : {next_pixel}")
+    """
 
     out_previous_pixel = 0
     out_center_pixel = 0
@@ -870,7 +882,8 @@ if __name__ == "__main__":
     import os
     import doctest
     doctest.testmod()
-    """
+    import cv2
+
     image_dir = ""
     image_name = "Lenna.png"
     image = Image.open(os.path.join(image_dir, image_name)).convert('L')
@@ -899,15 +912,16 @@ if __name__ == "__main__":
     magnitude_map = norm_vector_field(vector_field)
     angle_map = direction_vector_field(vector_field)
     bined_angle_map = direction_binning(angle_map)
-    print(vector_field)
+    print(f"Vector Field : \n{vector_field}")
     print("====================================")
-    print(magnitude_map)
+    print(f"Magnitude Map : \n{magnitude_map}")
     print("====================================")
-    print(angle_map)
+    print(f"Angle Map : \n{angle_map}")
     print("====================================")
-    print(bined_angle_map)
-    minima_image = non_maximum_suppression(magnitude_map, bined_angle_map, (3, 3))
+    print(f"Bined Angle Map : {bined_angle_map}")
 
+    minima_image = non_maximum_suppression(magnitude_map, bined_angle_map, high_threshold=150, low_threshold=150)
+    cv_canny = cv2.Canny(grayscale_image, 100, 200)
     plt.figure("NMS")
     plt.imshow(minima_image, cmap='gray')
     plt.show()
@@ -915,7 +929,8 @@ if __name__ == "__main__":
     plt.figure("Magnitude")
     plt.imshow(magnitude_map, cmap='gray')
     plt.show()
-    """
 
-
+    plt.figure("Canny")
+    plt.imshow(cv_canny, cmap='gray')
+    plt.show()
 
